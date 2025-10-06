@@ -107,36 +107,49 @@ client.on("messageCreate", async (message) => {
 
   // --- COMANDO !rank ---
   if (message.content.toLowerCase() === "!rank") {
-    const ranking = Object.entries(xpData)
-      .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
-      .slice(0, 10);
+    try {
+      const ranking = Object.entries(xpData)
+        .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
+        .slice(0, 10);
 
-    if (ranking.length === 0) {
-      return message.channel.send("📊 Ninguém tem XP ainda!");
+      if (ranking.length === 0) {
+        return message.channel.send("📊 Ninguém tem XP ainda!");
+      }
+
+      let descricao = "";
+      let posicao = 1;
+
+      for (const [id, dados] of ranking) {
+        let user;
+        try {
+          user = await client.users.fetch(id);
+        } catch {
+          console.log(`⚠️ Usuário ${id} não pôde ser carregado, ignorando.`);
+          continue;
+        }
+
+        descricao += `**${posicao}. ${user.username}** — 🏅 Nível ${dados.level} • ${dados.xp} XP\n`;
+        posicao++;
+      }
+
+      if (!descricao) {
+        return message.channel.send("📊 Nenhum jogador válido encontrado para o ranking!");
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498db)
+        .setTitle("🏆 Ranking dos mais ativos 🏆")
+        .setDescription(descricao)
+        .setFooter({ text: "Continue participando para subir no ranking!" })
+        .setTimestamp();
+
+      await message.channel.send({ embeds: [embed] });
+      console.log("✅ Ranking enviado com sucesso!");
+    } catch (err) {
+      console.error("Erro no comando !rank:", err);
+      message.channel.send("⚠️ Ocorreu um erro ao gerar o ranking.");
     }
-
-    let descricao = "";
-    let posicao = 1;
-
-    for (const [id, dados] of ranking) {
-      const user = await client.users.fetch(id).catch(() => null);
-      if (!user) continue;
-      descricao += `**${posicao}. ${user.username}** — 🏅 Nível ${dados.level} • ${dados.xp} XP\n`;
-      posicao++;
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor(0x3498db)
-      .setTitle("🏆 Ranking dos mais ativos 🏆")
-      .setDescription(descricao)
-      .setFooter({ text: "Continue participando para subir no ranking!" })
-      .setTimestamp();
-
-    await message.channel.send({ embeds: [embed] });
   }
-
-  fs.writeFileSync(XP_FILE, JSON.stringify(xpData, null, 2));
-});
 
 // === Servidor web (mantém vivo no Square Cloud) ===
 const app = express();
