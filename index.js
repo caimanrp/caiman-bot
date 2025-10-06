@@ -151,6 +151,10 @@ client.on("messageCreate", async (message) => {
     }
   }
 
+  // Salva XP no arquivo
+  fs.writeFileSync(XP_FILE, JSON.stringify(xpData, null, 2));
+}); // 👈 fecha o evento messageCreate aqui!
+
 // === Servidor web (mantém vivo no Square Cloud) ===
 const app = express();
 app.get("/", (req, res) => res.send("🤖 Caiman BOT está rodando!"));
@@ -158,3 +162,4 @@ app.listen(PORT || 3000, () => console.log(`🌐 Servidor web ativo na porta ${P
 
 // === Login do bot ===
 client.login(TOKEN);
+
