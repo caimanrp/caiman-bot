@@ -105,6 +105,36 @@ client.on("messageCreate", async (message) => {
     message.channel.send({ embeds: [embed] });
   }
 
+  // --- COMANDO !rank ---
+  if (message.content.toLowerCase() === "!rank") {
+    const ranking = Object.entries(xpData)
+      .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
+      .slice(0, 10);
+
+    if (ranking.length === 0) {
+      return message.channel.send("📊 Ninguém tem XP ainda!");
+    }
+
+    let descricao = "";
+    let posicao = 1;
+
+    for (const [id, dados] of ranking) {
+      const user = await client.users.fetch(id).catch(() => null);
+      if (!user) continue;
+      descricao += `**${posicao}. ${user.username}** — 🏅 Nível ${dados.level} • ${dados.xp} XP\n`;
+      posicao++;
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0x3498db)
+      .setTitle("🏆 Ranking dos mais ativos 🏆")
+      .setDescription(descricao)
+      .setFooter({ text: "Continue participando para subir no ranking!" })
+      .setTimestamp();
+
+    await message.channel.send({ embeds: [embed] });
+  }
+
   fs.writeFileSync(XP_FILE, JSON.stringify(xpData, null, 2));
 });
 
