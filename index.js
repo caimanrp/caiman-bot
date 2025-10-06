@@ -1,18 +1,15 @@
 const mongoose = require("mongoose");
 require("dotenv").config();
 
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-.then(() => console.log("🗄️ Conectado ao banco MongoDB da Square Cloud"))
-.catch((err) => console.error("❌ Erro ao conectar ao MongoDB:", err));
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("🗄️ Conectado ao banco MongoDB da Square Cloud"))
+  .catch((err) => console.error("❌ Erro ao conectar ao MongoDB:", err));
 
 // === Importações ===
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const express = require("express");
 const fs = require("fs");
-require("dotenv").config();
 
 // === Configurações do cliente Discord ===
 const client = new Client({
@@ -20,12 +17,19 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
-  ]
+    GatewayIntentBits.GuildMembers,
+  ],
 });
 
 // === Variáveis de ambiente ===
-const { TOKEN, CHANNEL_ID, ROLE_ID, MASTER_ROLE_ID, PORT } = process.env;
+const {
+  TOKEN,
+  CHANNEL_ID,
+  ROLE_ID,
+  MASTER_ROLE_ID,
+  PORT,
+  REQUIRED_ROLE_ID, // cargo obrigatório para ganhar XP
+} = process.env;
 
 // === Arquivo de XP ===
 const XP_FILE = "./xp.json";
@@ -62,44 +66,15 @@ client.on("messageCreate", async (message) => {
     }
   }
 
-  // --- SISTEMA DE XP ---
-  if (!xpData[userId]) xpData[userId] = { xp: 0, level: 1 };
-  const xpGanho = Math.floor(Math.random() * 6) + 3;
-  xpData[userId].xp += xpGanho;
-
-  const requiredXP = getRequiredXP(xpData[userId].level);
-  if (xpData[userId].xp >= requiredXP) {
-    xpData[userId].level++;
-    xpData[userId].xp = 0;
-
-    message.channel.send(
-      `🎉 Parabéns ${message.author}, você subiu para o nível ${xpData[userId].level}!`
-    );
-
-    // Cargo Mestre da Comunidade no nível 10
-    if (xpData[userId].level === 10) {
-      try {
-        const member = await message.guild.members.fetch(userId);
-        await member.roles.add(MASTER_ROLE_ID);
-
-        const embed = new EmbedBuilder()
-          .setColor(0xf1c40f)
-          .setTitle("👑 Novo Mestre da Comunidade! 👑")
-          .setDescription(
-            `Parabéns ${message.author}, você alcançou o **Nível 10** e agora é um **MESTRE DA COMUNIDADE**! 🎉`
-          )
-          .setFooter({ text: "Obrigado por manter nossa comunidade viva!" })
-          .setTimestamp();
-
-        await message.channel.send({ embeds: [embed] });
-      } catch (err) {
-        console.error("Erro ao dar cargo Mestre:", err);
-      }
-    }
-  }
+  // --- Busca o membro e verifica se ele tem o cargo obrigatório ---
+  const member = await message.guild.members.fetch(userId).catch(() => null);
+  const temCargoObrigatorio = REQUIRED_ROLE_ID
+    ? member?.roles.cache.has(REQUIRED_ROLE_ID)
+    : true; // se não definido, todos ganham XP
 
   // --- COMANDO !meuxp ---
   if (message.content.toLowerCase() === "!meuxp") {
+    if (!xpData[userId]) xpData[userId] = { xp: 0, level: 1 };
     const dados = xpData[userId];
     const requiredXP = getRequiredXP(dados.level);
 
@@ -112,7 +87,7 @@ client.on("messageCreate", async (message) => {
       )
       .setTimestamp();
 
-    message.channel.send({ embeds: [embed] });
+    return message.channel.send({ embeds: [embed] });
   }
 
   // --- COMANDO !rank ---
@@ -142,10 +117,6 @@ client.on("messageCreate", async (message) => {
         posicao++;
       }
 
-      if (!descricao) {
-        return message.channel.send("📊 Nenhum jogador válido encontrado para o ranking!");
-      }
-
       const embed = new EmbedBuilder()
         .setColor(0x3498db)
         .setTitle("🏆 Ranking dos mais ativos 🏆")
@@ -159,9 +130,51 @@ client.on("messageCreate", async (message) => {
       console.error("Erro no comando !rank:", err);
       message.channel.send("⚠️ Ocorreu um erro ao gerar o ranking.");
     }
+    return;
   }
 
-  // Salva XP no arquivo
+  // --- Se o usuário não tiver o cargo obrigatório, não ganha XP ---
+  if (!temCargoObrigatorio) {
+    console.log(`⛔ ${message.author.tag} não tem o cargo obrigatório — XP bloqueado.`);
+    return; // permite comandos, mas bloqueia ganho de XP
+  }
+
+  // --- SISTEMA DE XP ---
+  if (!xpData[userId]) xpData[userId] = { xp: 0, level: 1 };
+  const xpGanho = Math.floor(Math.random() * 6) + 3;
+  xpData[userId].xp += xpGanho;
+
+  const requiredXP = getRequiredXP(xpData[userId].level);
+  if (xpData[userId].xp >= requiredXP) {
+    xpData[userId].level++;
+    xpData[userId].xp = 0;
+
+    message.channel.send(
+      `🎉 Parabéns ${message.author}, você subiu para o nível ${xpData[userId].level}!`
+    );
+
+    // Cargo Mestre da Comunidade no nível 10
+    if (xpData[userId].level === 10 && MASTER_ROLE_ID) {
+      try {
+        await member.roles.add(MASTER_ROLE_ID);
+
+        const embed = new EmbedBuilder()
+          .setColor(0xf1c40f)
+          .setTitle("👑 Novo Mestre da Comunidade! 👑")
+          .setDescription(
+            `Parabéns ${message.author}, você alcançou o **Nível 10** e agora é um **MESTRE DA COMUNIDADE**! 🎉`
+          )
+          .setFooter({ text: "Obrigado por manter nossa comunidade viva!" })
+          .setTimestamp();
+
+        await message.channel.send({ embeds: [embed] });
+      } catch (err) {
+        console.error("Erro ao dar cargo Mestre:", err);
+      }
+    }
+  }
+
+  // --- Salva XP no arquivo ---
   fs.writeFileSync(XP_FILE, JSON.stringify(xpData, null, 2));
 }); // 👈 fecha o evento messageCreate aqui!
 
@@ -172,4 +185,3 @@ app.listen(PORT || 3000, () => console.log(`🌐 Servidor web ativo na porta ${P
 
 // === Login do bot ===
 client.login(TOKEN);
-
