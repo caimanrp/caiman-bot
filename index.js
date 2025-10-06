@@ -1,3 +1,13 @@
+const mongoose = require("mongoose");
+require("dotenv").config();
+
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log("🗄️ Conectado ao banco MongoDB da Square Cloud"))
+.catch((err) => console.error("❌ Erro ao conectar ao MongoDB:", err));
+
 // === Importações ===
 const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const express = require("express");
