@@ -37,8 +37,11 @@ function log(msg) {
 mongoose
   .connect(process.env.MONGO_URI, {
     tls: true,
-    tlsAllowInvalidCertificates: true, // ✅ aceita certificado interno
-    serverSelectionTimeoutMS: 10000,   // evita timeouts longos
+    tlsInsecure: true,                // 🔧 aceita certificados internos da Square Cloud
+    connectTimeoutMS: 20000,          // ⏱ tempo maior de tentativa de conexão
+    serverSelectionTimeoutMS: 20000,  // ⏱ evita falhas rápidas de seleção de servidor
+    socketTimeoutMS: 45000,           // 🔄 garante estabilidade da conexão
+    family: 4,                        // 🌐 força IPv4 (evita falhas com IPv6)
   })
   .then(() => log("🗄️ Conectado ao MongoDB com sucesso"))
   .catch((err) => log(`❌ Erro ao conectar ao MongoDB: ${err.message}`));
