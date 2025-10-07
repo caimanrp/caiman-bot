@@ -9,29 +9,14 @@ const {
   Events,
 } = require("discord.js");
 
+// === Handlers ===
 const {
   setupWhitelistButton,
   iniciarWhitelist,
   gerenciarWhitelist,
 } = require("./whitelistHandler");
 
-// === Função de log formatado ===
-function log(msg) {
-  console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
-}
-
-// === Verificação das variáveis de ambiente ===
-if (!process.env.TOKEN) {
-  console.error("❌ ERRO: TOKEN do bot não foi definido no ambiente!");
-  process.exit(1);
-}
-if (!process.env.MONGO_URI) {
-  console.error("❌ ERRO: Variável MONGO_URI não foi carregada!");
-  console.error("Verifique se ela está configurada no painel da Square Cloud.");
-  process.exit(1);
-}
-
-// === Inicialização do cliente Discord ===
+// === Configuração do cliente Discord ===
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -43,26 +28,45 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-// === Conexão com o MongoDB Atlas ===
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 20000,
-    connectTimeoutMS: 20000,
-  })
-  .then(() => log("🗄️ Conectado ao MongoDB Atlas com sucesso"))
-  .catch((err) => {
-    log(`❌ Erro ao conectar ao MongoDB Atlas: ${err.message}`);
-  });
+// === Função de log padronizada ===
+function log(msg) {
+  console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
+}
 
-// === Servidor Web (mantém o bot ativo na Square Cloud) ===
+// === Validação das variáveis de ambiente ===
+if (!process.env.MONGO_URI) {
+  console.error("❌ ERRO: Variável MONGO_URI não foi carregada!");
+  process.exit(1);
+}
+
+// === Conexão com o MongoDB Atlas ===
+async function conectarMongoDB() {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 10000,
+    });
+    log("🗄️ Conectado ao MongoDB Atlas com sucesso");
+  } catch (err) {
+    log(`❌ Erro ao conectar ao MongoDB Atlas: ${err.message}`);
+    setTimeout(conectarMongoDB, 30000); // tenta reconectar em 30s
+  }
+}
+
+mongoose.connection.on("disconnected", () => {
+  log("⚠️ Conexão com MongoDB perdida. Tentando reconectar...");
+  conectarMongoDB();
+});
+
+// Inicia a conexão
+conectarMongoDB();
+
+// === Servidor web (mantém o bot ativo na Square Cloud) ===
 const app = express();
 app.get("/", (req, res) => res.send("🤖 Caiman BOT está rodando!"));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => log(`🌐 Servidor web ativo na porta ${PORT}`));
 
-// === Evento: Quando o bot ficar online ===
+// === Quando o bot fica online ===
 client.once(Events.ClientReady, async () => {
   log(`✅ Bot conectado como ${client.user.tag}`);
   try {
@@ -71,9 +75,14 @@ client.once(Events.ClientReady, async () => {
   } catch (err) {
     log(`⚠️ Erro ao inicializar whitelist: ${err.message}`);
   }
+
+  // Log periódico de estabilidade
+  setInterval(() => {
+    log("💤 Status: Bot e banco operando normalmente.");
+  }, 10 * 60 * 1000); // a cada 10 minutos
 });
 
-// === Evento: Interações (botões) ===
+// === Interações com botões ===
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (!interaction.isButton()) return;
@@ -103,7 +112,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (err) {
     log(`❌ Erro ao processar interação (${interaction.customId}): ${err.stack}`);
-
     try {
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({
