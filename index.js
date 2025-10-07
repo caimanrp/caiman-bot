@@ -34,22 +34,18 @@ function log(msg) {
   console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
 }
 
-// === Conexão com o MongoDB (Square Cloud) ===
+// === Conexão com o MongoDB Atlas (seguro e estável) ===
 mongoose
   .connect(process.env.MONGO_URI, {
-    tls: true,
-    tlsAllowInvalidCertificates: true,
-    tlsAllowInvalidHostnames: true, // ✅ adiciona tolerância de hostname
-    authSource: "admin",
-    connectTimeoutMS: 20000,
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
     serverSelectionTimeoutMS: 20000,
-    socketTimeoutMS: 45000,
-    family: 4, // IPv4
+    connectTimeoutMS: 20000,
   })
-  .then(() => log("🗄️ Conectado ao MongoDB com sucesso"))
-  .catch((err) => log(`❌ Erro ao conectar ao MongoDB: ${err.message}`));
+  .then(() => log("🗄️ Conectado ao MongoDB Atlas com sucesso"))
+  .catch((err) => log(`❌ Erro ao conectar ao MongoDB Atlas: ${err.message}`));
 
-// === Servidor web (mantém o bot ativo na Square Cloud) ===
+  // === Servidor web (mantém o bot ativo na Square Cloud) ===
 const app = express();
 app.get("/", (req, res) => res.send("🤖 Caiman BOT está rodando!"));
 const PORT = process.env.PORT || 3000;
