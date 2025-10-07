@@ -262,14 +262,16 @@ async function gerenciarWhitelist(interaction, client) {
       wl.aprovadoPor = admin.username;
       await wl.save();
 
-      // 🟢 Enviar comando RCON
-      const senha = wl.respostas.find((r) => r.pergunta.includes("Senha"))?.resposta || "sem_senha";
-      const comandoRcon = `/rcon adduser nick:${wl.userName} senha:${senha}`;
-      const canalRcon = await client.channels.fetch(RCON_CHANNEL_ID);
-      if (canalRcon) {
-        await canalRcon.send(comandoRcon);
-        console.log(`⚙️ Comando RCON enviado: ${comandoRcon}`);
-      }
+// 🟢 Enviar comando RCON
+const senha = wl.respostas.find((r) => r.pergunta.includes("Senha"))?.resposta || "sem_senha";
+const comandoRcon = `/rcon adduser nick: ${wl.userName} senha: ${senha}`;
+const canalRcon = await client.channels.fetch(RCON_CHANNEL_ID);
+if (canalRcon) {
+  await canalRcon.send(comandoRcon);
+  console.log(`⚙️ Comando RCON enviado: ${comandoRcon}`);
+} else {
+  console.log("⚠️ Canal RCON não encontrado para enviar comando.");
+}
 
       await interaction.reply({ content: `✅ WL aprovada por ${admin.username}.`, ephemeral: true });
     } else {
