@@ -34,12 +34,12 @@ function log(msg) {
   console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
 }
 
-// === Conexão com o MongoDB (Square Cloud + certificado TLS seguro) ===
+// === Conexão com o MongoDB (Square Cloud) ===
 mongoose
   .connect(process.env.MONGO_URI, {
     tls: true,
-    tlsCAFile: path.resolve(__dirname, "square-cloud-db-cert.pem"), // ✅ caminho absoluto garantido
-    tlsAllowInvalidCertificates: true, // Square usa certificado interno
+    tlsAllowInvalidCertificates: true,
+    tlsAllowInvalidHostnames: true, // ✅ adiciona tolerância de hostname
     authSource: "admin",
     connectTimeoutMS: 20000,
     serverSelectionTimeoutMS: 20000,
