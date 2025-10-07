@@ -2,7 +2,6 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
 const express = require("express");
-const path = require("path");
 const {
   Client,
   GatewayIntentBits,
@@ -10,14 +9,29 @@ const {
   Events,
 } = require("discord.js");
 
-// === Handlers ===
 const {
   setupWhitelistButton,
   iniciarWhitelist,
   gerenciarWhitelist,
 } = require("./whitelistHandler");
 
-// === Configuração do cliente Discord ===
+// === Função de log formatado ===
+function log(msg) {
+  console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
+}
+
+// === Verificação das variáveis de ambiente ===
+if (!process.env.TOKEN) {
+  console.error("❌ ERRO: TOKEN do bot não foi definido no ambiente!");
+  process.exit(1);
+}
+if (!process.env.MONGO_URI) {
+  console.error("❌ ERRO: Variável MONGO_URI não foi carregada!");
+  console.error("Verifique se ela está configurada no painel da Square Cloud.");
+  process.exit(1);
+}
+
+// === Inicialização do cliente Discord ===
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -29,12 +43,7 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-// === Função de log ===
-function log(msg) {
-  console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
-}
-
-// === Conexão com o MongoDB Atlas (seguro e estável) ===
+// === Conexão com o MongoDB Atlas ===
 mongoose
   .connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
@@ -43,15 +52,17 @@ mongoose
     connectTimeoutMS: 20000,
   })
   .then(() => log("🗄️ Conectado ao MongoDB Atlas com sucesso"))
-  .catch((err) => log(`❌ Erro ao conectar ao MongoDB Atlas: ${err.message}`));
+  .catch((err) => {
+    log(`❌ Erro ao conectar ao MongoDB Atlas: ${err.message}`);
+  });
 
-  // === Servidor web (mantém o bot ativo na Square Cloud) ===
+// === Servidor Web (mantém o bot ativo na Square Cloud) ===
 const app = express();
 app.get("/", (req, res) => res.send("🤖 Caiman BOT está rodando!"));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => log(`🌐 Servidor web ativo na porta ${PORT}`));
 
-// === Quando o bot fica online ===
+// === Evento: Quando o bot ficar online ===
 client.once(Events.ClientReady, async () => {
   log(`✅ Bot conectado como ${client.user.tag}`);
   try {
@@ -62,7 +73,7 @@ client.once(Events.ClientReady, async () => {
   }
 });
 
-// === Interações com botões ===
+// === Evento: Interações (botões) ===
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (!interaction.isButton()) return;
