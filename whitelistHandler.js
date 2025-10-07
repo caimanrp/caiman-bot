@@ -2,280 +2,323 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelType,
   EmbedBuilder,
   PermissionFlagsBits,
 } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
-const Whitelist = require("./models/WhitelistSchema");
+const mongoose = require("mongoose");
 
-// === Sistema de LOG persistente ===
-const logDir = path.join(__dirname, "logs");
-if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
+// === Schema MongoDB ===
+const whitelistSchema = new mongoose.Schema({
+  userId: String,
+  userName: String,
+  respostas: Array,
+  status: String,
+  aprovadoPor: String,
+  data: { type: Date, default: Date.now },
+  canalLog: String,
+});
+const Whitelist = mongoose.model("Whitelist", whitelistSchema);
 
-const logFile = path.join(logDir, "whitelist.log");
-function registrarLog(mensagem) {
-  const data = new Date().toLocaleString("pt-BR");
-  const linha = `[${data}] ${mensagem}\n`;
-  console.log(linha.trim());
-  fs.appendFileSync(logFile, linha);
+// === Configurações ===
+const WL_START_CHANNEL_ID = process.env.WL_START_CHANNEL_ID;
+const WL_REVIEW_CHANNEL_ID = process.env.WL_REVIEW_CHANNEL_ID;
+const WL_APPROVED_CHANNEL_ID = process.env.WL_APPROVED_CHANNEL_ID;
+const WL_REJECTED_CHANNEL_ID = process.env.WL_REJECTED_CHANNEL_ID;
+const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID;
+
+// === Função de log formatada ===
+function log(msg) {
+  console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
 }
 
 // === Perguntas ===
 const perguntas = [
   {
-    titulo: "Nome do personagem",
-    descricao:
-      "Nome e sobrenome do seu personagem no RP (este também será o seu usuário para fazer login no servidor).",
+    chave: "nome_personagem",
+    texto: "1️⃣ **Nome do personagem**\nEx: Nome e sobrenome do seu personagem no RP (este também será o seu usuário para fazer login no servidor).",
   },
   {
-    titulo: "Idade do personagem",
-    descricao:
-      "Quantos anos seu personagem tem? A idade dele deve ser coerente com a história que se passa no servidor.",
+    chave: "idade_personagem",
+    texto: "2️⃣ **Idade do personagem**\nQuantos anos seu personagem tem? A idade deve ser coerente com a história que se passa no servidor.",
   },
   {
-    titulo: "Senha de acesso ao servidor",
-    descricao: "Essa será sua senha para fazer login no servidor.",
+    chave: "senha_servidor",
+    texto: "3️⃣ **Senha de acesso ao servidor**\nEssa será sua senha para fazer login no servidor.",
   },
   {
-    titulo: "História do personagem",
-    descricao:
-      "Conte a história do seu personagem. Lembre-se de ser coerente com a lore do servidor.",
+    chave: "historia",
+    texto: "4️⃣ **História do personagem**\nConte a história do seu personagem. Ela deve ser coerente com a lore do servidor.",
   },
   {
-    titulo: "Steam ID",
-    descricao: "Informe seu SteamID (exemplo: 76561198012345678).",
+    chave: "steam_id",
+    texto: "5️⃣ **Steam ID**\nInforme seu Steam ID.",
   },
   {
-    titulo: "Discord Nick",
-    descricao: "Seu nick no Discord, exatamente como aparece e sem '@'.",
+    chave: "discord_nick",
+    texto: "6️⃣ **Discord Nick**\nSeu nick no Discord, exatamente como aparece (sem @).",
   },
   {
-    titulo: "Como você conheceu nosso servidor?",
-    descricao: "Pesquisando na internet, convite de um amigo, etc.",
+    chave: "origem",
+    texto: "7️⃣ **Como você conheceu nosso servidor?**\nEx: pesquisando na internet, convite de um amigo etc.",
   },
 ];
 
-// === Mensagens padrão ===
-function formatarAprovada(discordId, nomePersonagem) {
-  return (
-    `> ✅ **Whitelist Aprovada**  \n` +
-    `> ════════════════════════  \n` +
-    `> **Jogador:** <@${discordId}>  \n` +
-    `> **Personagem:** *${nomePersonagem}*  \n` +
-    `> ════════════════════════  \n` +
-    `> 🎉 Parabéns! Sua whitelist foi aprovada.  \n` +
-    `> Este é apenas o início do seu fim...`
-  );
+// === Verificação de conexão Mongo ===
+async function checkMongoConnection() {
+  if (mongoose.connection.readyState !== 1) {
+    log("⚠️ Banco de dados não está conectado. Tentando reconectar...");
+    try {
+      await mongoose.connect(process.env.MONGO_URI, {
+        tls: true,
+        tlsAllowInvalidCertificates: true,
+        authSource: "admin",
+      });
+      log("✅ Reconectado ao MongoDB com sucesso!");
+    } catch (err) {
+      log(`❌ Falha ao reconectar MongoDB: ${err.message}`);
+      return false;
+    }
+  }
+  return true;
 }
 
-function formatarReprovada(discordId, motivo) {
-  return (
-    `> ❌ **Whitelist Reprovada**  \n` +
-    `> ════════════════════════  \n` +
-    `> **Jogador:** <@${discordId}>  \n` +
-    `> ⚠️ Sua whitelist foi reprovada por: ${motivo}  \n` +
-    `> Corrija esses detalhes e envie sua WL novamente 😊`
-  );
+// === Função para salvar no MongoDB com retry ===
+async function salvarComRetry(dados, tentativas = 3) {
+  for (let i = 1; i <= tentativas; i++) {
+    try {
+      await Whitelist.create(dados);
+      log(`💾 WL salva com sucesso no MongoDB (tentativa ${i}).`);
+      return true;
+    } catch (err) {
+      log(`⚠️ Erro ao salvar WL (tentativa ${i}): ${err.message}`);
+      if (i < tentativas) {
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      log("❌ Todas as tentativas de salvar no banco falharam.");
+      return false;
+    }
+  }
 }
 
-// === Variáveis de ambiente ===
-const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID;
-const WL_REVIEW_CHANNEL_ID = process.env.WL_REVIEW_CHANNEL_ID;
-const WL_APPROVED_CHANNEL_ID = process.env.WL_APPROVED_CHANNEL_ID;
-const WL_REJECTED_CHANNEL_ID = process.env.WL_REJECTED_CHANNEL_ID;
-
-// === Envia botão inicial de whitelist (evita duplicatas) ===
+// === Criação do botão inicial ===
 async function setupWhitelistButton(client) {
-  const startChannel = await client.channels.fetch(process.env.WL_START_CHANNEL_ID);
-  if (!startChannel) return registrarLog("❌ Canal de início de whitelist não encontrado.");
+  try {
+    const canal = await client.channels.fetch(WL_START_CHANNEL_ID);
+    if (!canal) return log("❌ Canal de whitelist não encontrado!");
 
-  const mensagens = await startChannel.messages.fetch({ limit: 10 });
-  const jaExiste = mensagens.find(
-    (msg) =>
-      msg.author.id === client.user.id &&
-      msg.embeds[0] &&
-      msg.embeds[0].title?.includes("Sistema de Whitelist")
-  );
+    const mensagens = await canal.messages.fetch();
+    if (mensagens.size > 0) {
+      log("⚠️ Mensagem de início de whitelist já existe, não será recriada.");
+      return;
+    }
 
-  if (jaExiste) {
-    registrarLog("⚠️ Mensagem de início de whitelist já existe, não será recriada.");
+    const embed = new EmbedBuilder()
+      .setColor(0x00ff88)
+      .setTitle("📜 Sistema de Whitelist")
+      .setDescription(
+        "Clique no botão abaixo para iniciar seu processo de **Whitelist**. Um canal privado será criado para você responder as perguntas."
+      )
+      .setFooter({ text: "Caiman RP | Project Zomboid" });
+
+    const botao = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("iniciar_wl")
+        .setLabel("Iniciar Whitelist")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    await canal.send({ embeds: [embed], components: [botao] });
+    log("📩 Mensagem de início de whitelist enviada com sucesso!");
+  } catch (err) {
+    log(`❌ Erro ao criar botão de whitelist: ${err.message}`);
+  }
+}
+
+// === Início do fluxo de whitelist ===
+async function iniciarWhitelist(interaction, client) {
+  const guild = interaction.guild;
+  const usuario = interaction.user;
+  const nomeCanal = `wl-${usuario.username.toLowerCase()}`;
+
+  try {
+    const canal = await guild.channels.create({
+      name: nomeCanal,
+      type: 0,
+      permissionOverwrites: [
+        { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: usuario.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+        { id: STAFF_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] },
+      ],
+    });
+
+    log(`📁 Canal criado: #${nomeCanal}`);
+
+    await interaction.reply({ content: "📩 Canal privado criado para você responder sua whitelist!", ephemeral: true });
+
+    const respostas = {};
+    let perguntaIndex = 0;
+
+    const enviarPergunta = async () => {
+      if (perguntaIndex >= perguntas.length) {
+        const respostasArray = perguntas.map((p) => ({
+          pergunta: p.texto,
+          resposta: respostas[p.chave] || "Não respondido",
+        }));
+
+        const txtPath = path.join(__dirname, `WL_${usuario.username}.txt`);
+        fs.writeFileSync(
+          txtPath,
+          respostasArray.map((r) => `${r.pergunta}\n${r.resposta}\n`).join("\n")
+        );
+
+        // Enviar embed + arquivo para canal da staff
+        const canalStaff = await client.channels.fetch(WL_REVIEW_CHANNEL_ID);
+        if (canalStaff) {
+          const embed = new EmbedBuilder()
+            .setColor(0x3498db)
+            .setTitle("📜 Nova Whitelist Recebida")
+            .addFields(
+              { name: "👤 Jogador", value: `<@${usuario.id}>`, inline: false },
+              ...respostasArray.map((r) => ({
+                name: r.pergunta.replace(/\*\*/g, ""),
+                value: r.resposta,
+              }))
+            )
+            .setFooter({ text: `${usuario.username} • ${new Date().toLocaleString("pt-BR")}` });
+
+          const botoes = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`aprovar_${usuario.id}`)
+              .setLabel("🟢 Aprovar WL")
+              .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+              .setCustomId(`reprovar_${usuario.id}`)
+              .setLabel("🔴 Reprovar WL")
+              .setStyle(ButtonStyle.Danger)
+          );
+
+          await canalStaff.send({
+            embeds: [embed],
+            files: [txtPath],
+            components: [botoes],
+          });
+
+          log(`📤 WL enviada para staff: ${usuario.username}`);
+          fs.unlinkSync(txtPath);
+        }
+
+        // Salvar no MongoDB
+        const dbOk = await checkMongoConnection();
+        if (dbOk) {
+          await salvarComRetry({
+            userId: usuario.id,
+            userName: respostas.nome_personagem || "Desconhecido",
+            respostas: respostasArray,
+            status: "pendente",
+            data: new Date(),
+            canalLog: WL_REVIEW_CHANNEL_ID,
+          });
+        }
+
+        // Apagar canal do jogador
+        await canal.delete().catch(() => {});
+        log(`🧹 Canal #${nomeCanal} removido após envio da WL de ${usuario.username}`);
+
+        return;
+      }
+
+      const pergunta = perguntas[perguntaIndex];
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("proxima").setLabel("Próxima").setStyle(ButtonStyle.Primary)
+      );
+
+      await canal.send({ content: pergunta.texto, components: [row] });
+
+      const coletor = canal.createMessageCollector({ filter: (m) => m.author.id === usuario.id, max: 1, time: 300000 });
+
+      coletor.on("collect", async (m) => {
+        respostas[pergunta.chave] = m.content;
+        perguntaIndex++;
+        await enviarPergunta();
+      });
+    };
+
+    await enviarPergunta();
+  } catch (err) {
+    log(`❌ Erro ao iniciar WL para ${usuario.username}: ${err.message}`);
+    await interaction.reply({ content: "⚠️ Erro ao iniciar whitelist.", ephemeral: true });
+  }
+}
+
+// === Gerenciar aprovação / reprovação ===
+async function gerenciarWhitelist(interaction, client) {
+  const { customId, user } = interaction;
+  const [, userId] = customId.split("_");
+  const membro = await client.users.fetch(userId);
+  const whl = await Whitelist.findOne({ userId });
+
+  if (!whl) {
+    await interaction.reply({ content: "⚠️ WL não encontrada.", ephemeral: true });
     return;
   }
 
-  const embed = new EmbedBuilder()
-    .setColor(0x3498db)
-    .setTitle("📝 Sistema de Whitelist")
-    .setDescription(
-      "Clique no botão abaixo para iniciar sua whitelist.\nUm canal privado será criado para você responder as perguntas."
-    )
-    .setFooter({ text: "Caiman RP — Project Zomboid" });
+  if (customId.startsWith("aprovar_")) {
+    const canalAprov = await client.channels.fetch(WL_APPROVED_CHANNEL_ID);
+    const msg = [
+      `> ✅ **Whitelist Aprovada**`,
+      `> ════════════════════════`,
+      `> **Jogador:** <@${userId}>`,
+      `> **Personagem:** *${whl.userName}*`,
+      `> ════════════════════════`,
+      `> 🎉 Parabéns! Sua whitelist foi aprovada.`,
+      `> Este é apenas o início do seu fim...`,
+    ].join("\n");
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("iniciar_wl").setLabel("Iniciar Whitelist").setStyle(ButtonStyle.Primary)
-  );
+    await canalAprov.send(msg);
+    await interaction.reply({ content: "✅ WL aprovada e publicada!", ephemeral: true });
+    whl.status = "aprovado";
+    whl.aprovadoPor = user.username;
+    await whl.save();
 
-  await startChannel.send({ embeds: [embed], components: [row] });
-  registrarLog("📩 Mensagem de início de whitelist enviada com sucesso!");
-}
+    log(`🟢 WL aprovada: ${whl.userName} por ${user.username}`);
+  }
 
-// === Coleta das respostas do jogador ===
-async function iniciarWhitelist(interaction, client) {
-  const guild = interaction.guild;
-  const membro = interaction.user;
+  if (customId.startsWith("reprovar_")) {
+    await interaction.reply({ content: "✏️ Digite o motivo da reprovação no chat.", ephemeral: true });
 
-  registrarLog(`🧍 Jogador iniciou WL: ${membro.tag} (${membro.id})`);
-
-  // Cria canal privado
-  const canal = await guild.channels.create({
-    name: `wl-${membro.username}`,
-    type: ChannelType.GuildText,
-    permissionOverwrites: [
-      { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: membro.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
-      { id: STAFF_ROLE_ID, allow: [PermissionFlagsBits.ViewChannel] },
-    ],
-  });
-
-  await interaction.reply({ content: "📩 Seu canal de whitelist foi criado!", ephemeral: true });
-  registrarLog(`📁 Canal criado: #${canal.name}`);
-
-  const respostas = [];
-
-  for (let i = 0; i < perguntas.length; i++) {
-    const p = perguntas[i];
-    const perguntaEmbed = new EmbedBuilder()
-      .setColor(0x2ecc71)
-      .setTitle(`📜 Pergunta ${i + 1}/${perguntas.length}`)
-      .setDescription(`**${p.titulo}**\n${p.descricao}`);
-
-    await canal.send({ embeds: [perguntaEmbed] });
-
-    const coletor = await canal.awaitMessages({
-      filter: (m) => m.author.id === membro.id,
+    const coletor = interaction.channel.createMessageCollector({
+      filter: (m) => m.author.id === user.id,
       max: 1,
       time: 300000,
     });
 
-    if (!coletor.size) {
-      await canal.send("⏰ Tempo esgotado. Reinicie sua whitelist quando estiver pronto.");
-      registrarLog(`⏰ WL cancelada por inatividade: ${membro.tag}`);
-      return canal.delete();
-    }
+    coletor.on("collect", async (m) => {
+      const motivo = m.content;
+      const canalReprov = await client.channels.fetch(WL_REJECTED_CHANNEL_ID);
+      const msg = [
+        `> ❌ **Whitelist Reprovada**`,
+        `> ════════════════════════`,
+        `> **Jogador:** <@${userId}>`,
+        `> ⚠️ Sua whitelist foi reprovada por: ${motivo}`,
+        `> Corrija esses detalhes e envie sua WL novamente 😊`,
+      ].join("\n");
 
-    const resposta = coletor.first().content;
-    respostas.push({ pergunta: p.titulo, resposta });
-  }
+      await canalReprov.send(msg);
+      await interaction.followUp({ content: "❌ WL reprovada e publicada.", ephemeral: true });
+      whl.status = "reprovado";
+      whl.aprovadoPor = user.username;
+      await whl.save();
 
-  await canal.send("✅ Whitelist enviada com sucesso. Aguarde análise da equipe.");
-  registrarLog(`📨 WL concluída: ${membro.tag}`);
-
-  // === Envia ao canal da staff ===
-  const reviewChannel = await client.channels.fetch(WL_REVIEW_CHANNEL_ID);
-  const arquivoTxt = path.join(__dirname, `WL-${respostas[0].resposta}-${Date.now()}.txt`);
-  const conteudo = respostas.map((r) => `Pergunta: ${r.pergunta}\nResposta: ${r.resposta}`).join("\n\n");
-  fs.writeFileSync(arquivoTxt, conteudo);
-
-  const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle("📜 Nova Whitelist Recebida")
-    .setDescription(respostas.map((r) => `**${r.pergunta}:** ${r.resposta}`).join("\n\n"))
-    .setFooter({ text: `Enviado por ${membro.username} • ${new Date().toLocaleString()}` });
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`aprovar_${membro.id}`).setLabel("Aprovar WL").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`reprovar_${membro.id}`).setLabel("Reprovar WL").setStyle(ButtonStyle.Danger)
-  );
-
-  await reviewChannel.send({ embeds: [embed], files: [arquivoTxt], components: [row] });
-  fs.unlinkSync(arquivoTxt);
-  registrarLog(`📤 WL enviada para staff: ${membro.tag}`);
-
-  // 🧹 Remove o canal privado imediatamente após o envio
-  try {
-    await canal.delete();
-    registrarLog(`🧹 Canal #${canal.name} removido após envio da WL de ${membro.tag}`);
-  } catch (err) {
-    registrarLog(`⚠️ Erro ao deletar canal #${canal.name}: ${err.message}`);
-  }
-
-  await Whitelist.create({
-    userId: membro.id,
-    userName: respostas[0].resposta,
-    respostas,
-    status: "pendente",
-    canalLog: reviewChannel.id,
-  });
-}
-
-// === Aprovação e reprovação de WL ===
-async function gerenciarWhitelist(interaction, client) {
-  const [acao, userId] = interaction.customId.split("_");
-  const wl = await Whitelist.findOne({ userId });
-  if (!wl) return interaction.reply({ content: "❌ WL não encontrada.", ephemeral: true });
-
-  const membro = await client.users.fetch(userId);
-  const nomePersonagem = wl.respostas.find((r) => r.pergunta === "Nome do personagem")?.resposta || "Desconhecido";
-  const senhaServidor = wl.respostas.find((r) => r.pergunta === "Senha de acesso ao servidor")?.resposta || "sem_senha";
-
-  if (acao === "aprovar") {
-    await interaction.deferReply({ ephemeral: true });
-    await interaction.followUp({ content: "✅ WL aprovada!", ephemeral: true });
-
-    const canalAprovados = await client.channels.fetch(WL_APPROVED_CHANNEL_ID);
-    await canalAprovados.send(formatarAprovada(userId, nomePersonagem));
-    await interaction.channel.send(`/rcon adduser nick:${nomePersonagem} senha:${senhaServidor}`);
-
-    wl.status = "aprovado";
-    wl.aprovadoPor = interaction.user.username;
-    await wl.save();
-
-    registrarLog(`✅ WL APROVADA por ${interaction.user.tag} — ${membro.tag} (${nomePersonagem})`);
-  }
-
-  if (acao === "reprovar") {
-    await interaction.deferReply({ ephemeral: true });
-    await interaction.followUp({
-      content: "✏️ Digite o motivo da reprovação no chat deste canal:",
-      ephemeral: true,
-    });
-
-    const coletor = interaction.channel.createMessageCollector({
-      filter: (m) => m.author.id === interaction.user.id,
-      max: 1,
-      time: 180000,
-    });
-
-    coletor.on("collect", async (msg) => {
-      const motivo = msg.content;
-      const canalReprovados = await client.channels.fetch(WL_REJECTED_CHANNEL_ID);
-      await canalReprovados.send(formatarReprovada(userId, motivo));
-
-      wl.status = "reprovado";
-      wl.aprovadoPor = interaction.user.username;
-      wl.motivoReprovacao = motivo;
-      await wl.save();
-
-      registrarLog(`❌ WL REPROVADA por ${interaction.user.tag} — ${membro.tag}`);
-      registrarLog(`📝 Motivo: ${motivo}`);
-
-      await interaction.followUp({
-        content: "❌ WL reprovada com motivo registrado.",
-        ephemeral: true,
-      });
-    });
-
-    coletor.on("end", (collected) => {
-      if (collected.size === 0) {
-        interaction.followUp({
-          content: "⏰ Tempo esgotado. Nenhum motivo informado.",
-          ephemeral: true,
-        });
-        registrarLog(`⚠️ ${interaction.user.tag} não informou o motivo da reprovação.`);
-      }
+      log(`🔴 WL reprovada: ${whl.userName} por ${user.username}`);
     });
   }
 }
 
-module.exports = { setupWhitelistButton, iniciarWhitelist, gerenciarWhitelist };
+module.exports = {
+  setupWhitelistButton,
+  iniciarWhitelist,
+  gerenciarWhitelist,
+};
