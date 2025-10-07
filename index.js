@@ -33,15 +33,15 @@ function log(msg) {
   console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
 }
 
-// === Conexão com o MongoDB (compatível com Square Cloud) ===
+// === Conexão com o MongoDB (Square Cloud + certificado PEM) ===
 mongoose
   .connect(process.env.MONGO_URI, {
     tls: true,
-    tlsInsecure: true,                // 🔧 aceita certificados internos da Square Cloud
-    connectTimeoutMS: 20000,          // ⏱ tempo maior de tentativa de conexão
-    serverSelectionTimeoutMS: 20000,  // ⏱ evita falhas rápidas de seleção de servidor
-    socketTimeoutMS: 45000,           // 🔄 garante estabilidade da conexão
-    family: 4,                        // 🌐 força IPv4 (evita falhas com IPv6)
+    tlsCAFile: "./squarecloud-db-cert.pem", // ✅ arquivo PEM (coloque no mesmo diretório do index.js)
+    connectTimeoutMS: 20000,
+    serverSelectionTimeoutMS: 20000,
+    socketTimeoutMS: 45000,
+    family: 4, // IPv4
   })
   .then(() => log("🗄️ Conectado ao MongoDB com sucesso"))
   .catch((err) => log(`❌ Erro ao conectar ao MongoDB: ${err.message}`));
