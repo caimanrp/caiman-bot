@@ -27,9 +27,9 @@ const WL_REVIEW_CHANNEL_ID = process.env.WL_REVIEW_CHANNEL_ID;
 const WL_APPROVED_CHANNEL_ID = process.env.WL_APPROVED_CHANNEL_ID;
 const WL_REJECTED_CHANNEL_ID = process.env.WL_REJECTED_CHANNEL_ID;
 const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID;
-const RCON_CHANNEL_ID = process.env.RCON_CHANNEL_ID; // novo canal para executar o comando
+const RCON_CHANNEL_ID = process.env.RCON_CHANNEL_ID;
 
-// === Lista de perguntas ===
+// === Lista de perguntas (atualizada — “Discord Nick” removida) ===
 const perguntas = [
   {
     pergunta: "Nome do personagem",
@@ -53,11 +53,6 @@ const perguntas = [
   {
     pergunta: "Steam ID",
     descricao: "Informe seu SteamID.",
-  },
-  {
-    pergunta: "Discord Nick",
-    descricao:
-      "Seu nick no Discord, exatamente como aparece (sem o @).",
   },
   {
     pergunta: "Como você conheceu nosso servidor?",
@@ -124,9 +119,7 @@ async function iniciarWhitelist(interaction, client) {
     const fazerPergunta = async (i = 0) => {
       if (i >= perguntas.length) {
         const arquivo = `./wl_${user.username}_${Date.now()}.txt`;
-        const conteudo = respostas
-          .map((r) => `${r.pergunta}: ${r.resposta}`)
-          .join("\n\n");
+        const conteudo = respostas.map((r) => `${r.pergunta}: ${r.resposta}`).join("\n\n");
         fs.writeFileSync(arquivo, conteudo);
 
         const canalStaff = await client.channels.fetch(WL_REVIEW_CHANNEL_ID);
@@ -204,10 +197,7 @@ async function iniciarWhitelist(interaction, client) {
       });
 
       coletor.on("collect", async (msg) => {
-        respostas.push({
-          pergunta: perguntaAtual.pergunta,
-          resposta: msg.content,
-        });
+        respostas.push({ pergunta: perguntaAtual.pergunta, resposta: msg.content });
         await fazerPergunta(i + 1);
       });
 
