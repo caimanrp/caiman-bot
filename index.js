@@ -2,6 +2,7 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
 const express = require("express");
+const path = require("path");
 const {
   Client,
   GatewayIntentBits,
@@ -33,11 +34,11 @@ function log(msg) {
   console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
 }
 
-// === Conexão com o MongoDB (Square Cloud + certificado PEM) ===
+// === Conexão com o MongoDB (Square Cloud + certificado PEM absoluto) ===
 mongoose
   .connect(process.env.MONGO_URI, {
     tls: true,
-    tlsCAFile: "./squarecloud-db-cert.pem", // ✅ arquivo PEM (coloque no mesmo diretório do index.js)
+    tlsCAFile: path.join(__dirname, "square-cloud-db-cert.pem"), // ✅ caminho absoluto do PEM
     connectTimeoutMS: 20000,
     serverSelectionTimeoutMS: 20000,
     socketTimeoutMS: 45000,
