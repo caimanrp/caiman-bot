@@ -35,7 +35,10 @@ function log(msg) {
 
 // === Inicialização do banco de dados ===
 mongoose
-  .connect(process.env.MONGO_URI)
+  .connect(process.env.MONGO_URI, {
+    ssl: true,
+    sslValidate: false, // ✅ Permite certificados self-signed (Square Cloud)
+  })
   .then(() => log("🗄️ Conectado ao MongoDB com sucesso"))
   .catch((err) => log(`❌ Erro ao conectar ao MongoDB: ${err.message}`));
 
@@ -58,35 +61,46 @@ client.once(Events.ClientReady, async () => {
 
 // === Interações com botões ===
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-
   try {
-    // Início da whitelist
-    if (interaction.customId === "iniciar_wl") {
+    if (!interaction.isButton()) return;
+
+    const { customId } = interaction;
+    if (!customId) {
+      log("⚠️ Interação sem customId detectada.");
+      return interaction.reply({
+        content: "⚠️ Erro interno — interação inválida.",
+        ephemeral: true,
+      });
+    }
+
+    // 🟢 Início da whitelist
+    if (customId === "iniciar_wl") {
       await iniciarWhitelist(interaction, client);
       return;
     }
 
-    // Aprovação / Reprovação
-    if (
-      interaction.customId.startsWith("aprovar_") ||
-      interaction.customId.startsWith("reprovar_")
-    ) {
+    // 🟠 Aprovação / Reprovação
+    if (customId.startsWith("aprovar_") || customId.startsWith("reprovar_")) {
       await gerenciarWhitelist(interaction, client);
       return;
     }
   } catch (err) {
     log(`❌ Erro ao processar interação (${interaction.customId}): ${err.stack}`);
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({
-        content: "⚠️ Ocorreu um erro inesperado ao processar esta ação.",
-        ephemeral: true,
-      });
-    } else {
-      await interaction.reply({
-        content: "⚠️ Ocorreu um erro inesperado ao processar esta ação.",
-        ephemeral: true,
-      });
+
+    try {
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({
+          content: "⚠️ Ocorreu um erro ao processar esta ação.",
+          ephemeral: true,
+        });
+      } else {
+        await interaction.reply({
+          content: "⚠️ Ocorreu um erro ao processar esta ação.",
+          ephemeral: true,
+        });
+      }
+    } catch (e) {
+      log(`⚠️ Falha ao responder erro de interação: ${e.message}`);
     }
   }
 });
