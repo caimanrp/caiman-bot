@@ -33,11 +33,12 @@ function log(msg) {
   console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
 }
 
-// === Inicialização do banco de dados ===
+// === Conexão com o MongoDB (compatível com Square Cloud) ===
 mongoose
   .connect(process.env.MONGO_URI, {
-    ssl: true,
-    sslValidate: false, // ✅ Permite certificados self-signed (Square Cloud)
+    tls: true,
+    tlsAllowInvalidCertificates: true, // ✅ aceita certificado interno
+    serverSelectionTimeoutMS: 10000,   // evita timeouts longos
   })
   .then(() => log("🗄️ Conectado ao MongoDB com sucesso"))
   .catch((err) => log(`❌ Erro ao conectar ao MongoDB: ${err.message}`));
@@ -67,10 +68,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const { customId } = interaction;
     if (!customId) {
       log("⚠️ Interação sem customId detectada.");
-      return interaction.reply({
-        content: "⚠️ Erro interno — interação inválida.",
-        ephemeral: true,
-      });
+      if (!interaction.replied) {
+        await interaction.reply({
+          content: "⚠️ Erro interno — interação inválida.",
+          ephemeral: true,
+        });
+      }
+      return;
     }
 
     // 🟢 Início da whitelist
