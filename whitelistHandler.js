@@ -28,8 +28,9 @@ const WL_APPROVED_CHANNEL_ID = process.env.WL_APPROVED_CHANNEL_ID;
 const WL_REJECTED_CHANNEL_ID = process.env.WL_REJECTED_CHANNEL_ID;
 const STAFF_ROLE_ID = process.env.STAFF_ROLE_ID;
 const RCON_CHANNEL_ID = process.env.RCON_CHANNEL_ID;
+const APPROVED_ROLE_ID = process.env.APPROVED_ROLE_ID; // 🆕 cargo que o usuário deve receber ao ser aprovado
 
-// === Lista de perguntas (atualizada — “Discord Nick” removida) ===
+// === Lista de perguntas ===
 const perguntas = [
   {
     pergunta: "Nome do personagem",
@@ -230,6 +231,7 @@ async function gerenciarWhitelist(interaction, client) {
     if (!wl) return interaction.reply({ content: "⚠️ Nenhuma WL pendente encontrada.", ephemeral: true });
 
     const user = await client.users.fetch(userId);
+    const guild = client.guilds.cache.first();
 
     if (aprovando) {
       const canalAprovados = await client.channels.fetch(WL_APPROVED_CHANNEL_ID);
@@ -244,19 +246,29 @@ async function gerenciarWhitelist(interaction, client) {
           `> Este é apenas o início do seu fim...`,
       });
 
+      // 🟢 Atribuir cargo aprovado
+      if (APPROVED_ROLE_ID) {
+        try {
+          const membro = await guild.members.fetch(userId);
+          await membro.roles.add(APPROVED_ROLE_ID);
+          console.log(`✅ Cargo de aprovado adicionado a ${membro.user.tag}`);
+        } catch (err) {
+          console.error(`⚠️ Erro ao atribuir cargo aprovado: ${err.message}`);
+        }
+      }
+
+      // 🟢 Registrar aprovação
       wl.status = "aprovado";
       wl.aprovadoPor = admin.username;
       await wl.save();
 
+      // 🟢 Enviar comando RCON
       const senha = wl.respostas.find((r) => r.pergunta.includes("Senha"))?.resposta || "sem_senha";
       const comandoRcon = `/rcon adduser nick:${wl.userName} senha:${senha}`;
-
       const canalRcon = await client.channels.fetch(RCON_CHANNEL_ID);
       if (canalRcon) {
         await canalRcon.send(comandoRcon);
         console.log(`⚙️ Comando RCON enviado: ${comandoRcon}`);
-      } else {
-        console.log("⚠️ Canal RCON não encontrado para enviar comando.");
       }
 
       await interaction.reply({ content: `✅ WL aprovada por ${admin.username}.`, ephemeral: true });
