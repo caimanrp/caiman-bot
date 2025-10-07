@@ -23,42 +23,27 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages,
   ],
   partials: [Partials.Channel],
 });
 
-// === Função de log padronizada ===
+// === Função de log ===
 function log(msg) {
   console.log(`[${new Date().toLocaleString("pt-BR")}] ${msg}`);
 }
 
-// === Validação das variáveis de ambiente ===
+// === Conexão com o MongoDB Atlas ===
 if (!process.env.MONGO_URI) {
   console.error("❌ ERRO: Variável MONGO_URI não foi carregada!");
   process.exit(1);
 }
 
-// === Conexão com o MongoDB Atlas ===
-async function conectarMongoDB() {
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 10000,
-    });
-    log("🗄️ Conectado ao MongoDB Atlas com sucesso");
-  } catch (err) {
-    log(`❌ Erro ao conectar ao MongoDB Atlas: ${err.message}`);
-    setTimeout(conectarMongoDB, 30000); // tenta reconectar em 30s
-  }
-}
-
-mongoose.connection.on("disconnected", () => {
-  log("⚠️ Conexão com MongoDB perdida. Tentando reconectar...");
-  conectarMongoDB();
-});
-
-// Inicia a conexão
-conectarMongoDB();
+mongoose
+  .connect(process.env.MONGO_URI, {
+    serverSelectionTimeoutMS: 10000,
+  })
+  .then(() => log("🗄️ Conectado ao MongoDB Atlas com sucesso"))
+  .catch((err) => log(`❌ Erro ao conectar ao MongoDB Atlas: ${err.message}`));
 
 // === Servidor web (mantém o bot ativo na Square Cloud) ===
 const app = express();
@@ -75,37 +60,21 @@ client.once(Events.ClientReady, async () => {
   } catch (err) {
     log(`⚠️ Erro ao inicializar whitelist: ${err.message}`);
   }
-
-  // Log periódico de estabilidade
-  setInterval(() => {
-    log("💤 Status: Bot e banco operando normalmente.");
-  }, 10 * 60 * 1000); // a cada 10 minutos
 });
 
-// === Interações com botões ===
+// === Interações (botões da whitelist) ===
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (!interaction.isButton()) return;
 
     const { customId } = interaction;
-    if (!customId) {
-      log("⚠️ Interação sem customId detectada.");
-      if (!interaction.replied) {
-        await interaction.reply({
-          content: "⚠️ Erro interno — interação inválida.",
-          ephemeral: true,
-        });
-      }
-      return;
-    }
+    if (!customId) return;
 
-    // 🟢 Início da whitelist
     if (customId === "iniciar_wl") {
       await iniciarWhitelist(interaction, client);
       return;
     }
 
-    // 🟠 Aprovação / Reprovação
     if (customId.startsWith("aprovar_") || customId.startsWith("reprovar_")) {
       await gerenciarWhitelist(interaction, client);
       return;
@@ -130,11 +99,47 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+// === Sistema: atribuir cargo quando alguém é mencionado no canal de aprovados ===
+client.on(Events.MessageCreate, async (message) => {
+  try {
+    // Ignorar bots
+    if (message.author.bot) return;
+
+    const aprovadosChannelId = process.env.WL_APPROVED_CHANNEL_ID;
+    const cargoSobreviventeId = process.env.APPROVED_ROLE_ID;
+
+    if (!aprovadosChannelId || !cargoSobreviventeId) return;
+
+    // Apenas mensagens no canal de aprovados
+    if (message.channel.id !== aprovadosChannelId) return;
+
+    // Procurar menções na mensagem
+    const mencionados = message.mentions.users;
+    if (!mencionados.size) return;
+
+    const guild = message.guild;
+    for (const [id, user] of mencionados) {
+      try {
+        const membro = await guild.members.fetch(id);
+        if (membro.roles.cache.has(cargoSobreviventeId)) {
+          log(`⚙️ ${membro.user.tag} já possui o cargo de sobrevivente.`);
+          continue;
+        }
+        await membro.roles.add(cargoSobreviventeId);
+        log(`✅ Cargo de sobrevivente adicionado a ${membro.user.tag}`);
+      } catch (err) {
+        log(`❌ Erro ao adicionar cargo para ${user.tag}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    log(`❌ Erro no sistema de atribuição de cargo: ${err.message}`);
+  }
+});
+
 // === Tratamento global de erros ===
 process.on("unhandledRejection", (reason) => {
   log(`🚨 Rejeição não tratada: ${reason}`);
 });
-
 process.on("uncaughtException", (err) => {
   log(`💥 Exceção não tratada: ${err.stack}`);
 });
